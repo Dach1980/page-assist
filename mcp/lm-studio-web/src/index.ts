@@ -60,21 +60,35 @@ async function publicUrl(raw: string): Promise<URL> {
   return url
 }
 
-async function get(url: URL): Promise<Response> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT)
-  try {
-    return await fetch(url, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
-      }
-    })
-  } finally {
-    clearTimeout(timer)
+async function get(initialUrl: URL): Promise<Response> {
+  let url = initialUrl
+
+  for (let redirects = 0; redirects <= 5; redirects++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT)
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        redirect: "manual",
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
+        }
+      })
+
+      if (response.status < 300 || response.status >= 400) return response
+
+      const location = response.headers.get("location")
+      if (!location) return response
+      if (redirects === 5) throw new Error("Too many redirects")
+
+      url = await publicUrl(new URL(location, url).toString())
+    } finally {
+      clearTimeout(timer)
+    }
   }
+
+  throw new Error("Too many redirects")
 }
 
 async function duckduckgo(query: string, limit: number): Promise<SearchResult[]> {
